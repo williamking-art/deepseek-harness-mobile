@@ -398,10 +398,14 @@ test('session.prompt：参数递下去，回 { accepted }', async () => {
   assert.ok(handler !== undefined)
 
   const content = [{ type: 'text', text: '你好' }]
+  // 2026-11-05 起手机消息带来源前缀（笔记 implemented/2026-11-05-mobile-origin-tag.md）：
+  // 通道侧改的是**交给 DSH 的那份 content**，原 content 不被修改。
+  const tagged = [{ type: 'text', text: '【手机】你好' }]
   assert.deepEqual(await handler({ sid: 'sid_dsh-1', content }, { requestId: 'req_1' }), {
     accepted: true,
   })
-  assert.deepEqual(seen[0], ['dsh-1', 'req_1', content, 'queue'], '默认排队')
+  assert.deepEqual(seen[0], ['dsh-1', 'req_1', tagged, 'queue'], '默认排队（正文带手机来源前缀）')
+  assert.deepEqual(content, [{ type: 'text', text: '你好' }], '不修改调用方传进来的数组')
 
   await handler({ sid: 'sid_dsh-1', content, mode: 'steer' }, { requestId: 'req_2' })
   assert.equal(seen[1]?.[3], 'steer', 'mode 原样传下去（它决定"插队"还是"排队"）')

@@ -18,6 +18,9 @@
  * 任何 `spread` 都会让将来 DSH 新增的字段（比如会话 id）悄悄过线，而中继与手机
  * 只该看到 `sid`（§5.1）。
  */
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { WIRE_VERSION } from './protocol/frame.js'
 import { ProtocolError } from './protocol/errors.js'
 
@@ -52,6 +55,84 @@ import {
   SettingsScopeError,
   type SettingsFace,
 } from './dsh/settings-face.js'
+
+// ── 手机来源标记 + 审计（2026-11-05，笔记 implemented/2026-11-05-mobile-origin-tag.md）──
+
+/** 手机来源标记的默认前缀；可用 `DSH_MOBILE_TAG` 覆盖（空串 = 不打标、只审计）。 */
+function mobileTag(): string {
+  return process.env.DSH_MOBILE_TAG ?? '【手机】'
+}
+
+/** 宽松的正文分片视图：只读 `type`/`text`，其余字段原样带回。 */
+type LoosePromptPart = { type?: string; text?: string; [key: string]: unknown }
+
+/**
+ * 给手机发来的正文加来源前缀。
+ *
+ * DSH 的 `SessionPromptRequest` 没有来源字段（`packages/api/session-controller/src/types.ts`
+ * 的同名接口只有 requestId / sessionId / mode / content / clientTimeZone），电脑 Web 与手机
+ * 走同一个 `sessionController.prompt` 入口 —— 会话里本来分不出谁发的。通道这一侧能做的
+ * 只有"改正文"，所以标记落成**可见前缀**（用户 2026-11-05 选的方案 1），而不是伪造
+ * 一个宿主不认识的 source 字段。
+ *
+ * 只改第一个 text 块；没有 text 块（纯图片）就补一个，保证每条手机消息都带标。
+ */
+function tagMobilePrompt(content: readonly PromptPart[]): PromptPart[] {
+  const tag = mobileTag()
+  if (tag === '') return content.map((part) => part)
+  const out = content.map((part) => ({ ...(part as unknown as LoosePromptPart) }))
+  const firstText = out.findIndex((part) => part.type === 'text' && typeof part.text === 'string')
+  if (firstText >= 0) {
+    const part = out[firstText]
+    const text = part?.text as string
+    if (part !== undefined && !text.startsWith(tag)) part.text = tag + text
+  } else {
+    out.unshift({ type: 'text', text: tag })
+  }
+  return out as unknown as PromptPart[]
+}
+
+/**
+ * 记一行审计：**只记元数据，不记正文**（日志里出现用户正文等于把对话写进文件）。
+ *
+ * 落点是 `$DSH_HOME/logs/dsh-mobile-prompt-audit.jsonl`（默认 `~/.dsh/logs/`）。写失败
+ * 只吞掉：它是排障用的旁路，不该让一条本来能发出去的消息失败。
+ */
+function auditMobilePrompt(entry: {
+  sessionId: string
+  requestId: string
+  mode: 'queue' | 'steer'
+  content: readonly PromptPart[]
+}): void {
+  // 测试进程（`node --test` 会给子进程设 `NODE_TEST_CONTEXT`）不写真实审计：
+  // 用例会把 `~/.dsh/logs/` 当成每次跑测试的垃圾场，而审计只在真机/生产上有意义。
+  if (process.env.NODE_TEST_CONTEXT !== undefined) return
+  try {
+    const home =
+      process.env.DSH_HOME?.trim() ||
+      join(process.env.USERPROFILE ?? process.env.HOME ?? '.', '.dsh')
+    const dir = join(home, 'logs')
+    mkdirSync(dir, { recursive: true })
+    const chars = entry.content.reduce((sum, part) => {
+      const text = (part as unknown as LoosePromptPart).text
+      return sum + (typeof text === 'string' ? text.length : 0)
+    }, 0)
+    appendFileSync(
+      join(dir, 'dsh-mobile-prompt-audit.jsonl'),
+      JSON.stringify({
+        ts: Date.now(),
+        iso: new Date().toISOString(),
+        sessionId: entry.sessionId,
+        requestId: entry.requestId,
+        mode: entry.mode,
+        parts: entry.content.length,
+        chars,
+      }) + '\n',
+    )
+  } catch {
+    // 审计是旁路：失败不影响投递。
+  }
+}
 
 /** 设备清单里的一行。**不含公钥** —— 手机不需要别人的公钥，少发一个字段就少一处泄漏面。 */
 export interface DeviceRow {
@@ -627,6 +708,15 @@ export function createHandlers(deps: HandlerDeps): Partial<Record<MethodName, Me
       if (mode !== undefined && mode !== 'queue' && mode !== 'steer') {
         throw new ProtocolError('protocol/bad-frame', 'mode 必须是 queue 或 steer')
       }
+      // 手机来源：正文前缀 + 审计（笔记 implemented/2026-11-05-mobile-origin-tag.md）。
+      // 放在投递之前：审计里的 sessionId/requestId 与真正交给 DSH 的那一次完全一致。
+      const taggedContent = tagMobilePrompt(content)
+      auditMobilePrompt({
+        sessionId: dshSessionId,
+        requestId,
+        mode: mode === 'steer' ? 'steer' : 'queue',
+        content,
+      })
       // **幂等键就是 `requestId`**：方法面按 `IDEMPOTENT_METHODS` 把它包进两阶段管道
       // （先落盘 pending → 执行 → 成功写 done），所以这里只管把参数递下去。
       // DSH 自己也按 `rpcId` 去重（会扫会话事件日志，`commands.ts:602-614`）——
@@ -634,7 +724,7 @@ export function createHandlers(deps: HandlerDeps): Partial<Record<MethodName, Me
       const { accepted } = await deps.sessions.prompt(
         dshSessionId,
         requestId,
-        content,
+        taggedContent,
         mode === 'steer' ? 'steer' : 'queue',
       )
       return { accepted }
