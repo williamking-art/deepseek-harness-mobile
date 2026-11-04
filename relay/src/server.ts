@@ -1100,6 +1100,17 @@ export async function startRelay(options: RelayServerOptions): Promise<RelayServ
   const refuse = (socket: import('node:stream').Duplex, status: number, reason: string): void => {
     socket.end(`HTTP/1.1 ${status} ${reason}\r\nconnection: close\r\n\r\n`)
   }
+  // 2026-11-05：客户端/反代 RST 不再打挂进程（笔记 implemented/2026-11-05-relay-rst-guard.md）。
+  //
+  // Node 对**没有 error 监听**的 socket 会把 `read ECONNRESET` 升级成 uncaughtException，
+  // 整个中转退出（2026-11-05 线上实测 exit 1，连接器随后只能拿到反代的 502）。
+  // 挂在 connection 上而不是进程级：错误只该杀这一条连接，其他异常仍照旧大声退出。
+  http.on('connection', (socket) => {
+    socket.on('error', () => {
+      // 连接级错误没有恢复动作：socket 已由 http/ws 自己销毁。
+    })
+  })
+
   http.on('upgrade', (request, socket, head) => {
     void (async () => {
       const url = new URL(request.url ?? '/', 'http://relay.invalid')
