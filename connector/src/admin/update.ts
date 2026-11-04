@@ -40,7 +40,8 @@ export interface UpdateChecker {
   check(): Promise<UpdateInfo>
 }
 
-const REGISTRY = 'https://registry.npmjs.org/dsh-mobile-connector/latest'
+/** 版本清单：官方 0.1.21 已改为问自建端点（不再直连 npm registry）。 */
+const REGISTRY = 'https://dsh.songzuo.online/version/connector.json'
 /** 缓存时长：`check` 是用户点出来的，一分钟内连点不该打两次网络。 */
 const TTL_MS = 60_000
 
@@ -90,16 +91,19 @@ export function createUpdateChecker(options: {
           headers: { accept: 'application/json' },
         })
         if (!response.ok) {
-          throw new Error(`npm registry 回了 HTTP ${response.status}`)
+          throw new Error(`版本清单回了 HTTP ${response.status}`)
         }
-        const body = (await response.json()) as { version?: unknown }
+        const body = (await response.json()) as { version?: unknown; url?: unknown }
         const latest = typeof body.version === 'string' ? body.version : ''
-        if (latest === '') throw new Error('npm registry 的应答里没有 version')
+        if (latest === '') throw new Error('版本清单的应答里没有 version')
         cached = {
           ...base,
           latest,
           hasUpdate: isNewerVersion(options.current, latest),
-          url: `https://www.npmjs.com/package/dsh-mobile-connector/v/${latest}`,
+          url:
+            typeof body.url === 'string'
+              ? body.url
+              : `https://www.npmjs.com/package/dsh-mobile-connector/v/${latest}`,
         }
         return cached
       } catch (error) {

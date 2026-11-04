@@ -168,7 +168,7 @@ window.__ModuleLoader__.load({
      * 用户换了自己的之后还能切回来，不用记地址（用户原话：「你这个应该是选择框的吧，
      * 可以选我的，可以自己输入」）。
      */
-    const BUILTIN_RELAY_URL = 'wss://dsh.0t0.me/ws/connector'
+    const BUILTIN_RELAY_URL = 'wss://dsh.songzuo.online/ws/connector'
 
     /**
      * 从中转拨号地址推导出浏览器控制台地址。

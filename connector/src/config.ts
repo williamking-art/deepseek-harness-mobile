@@ -50,8 +50,12 @@ export interface ConnectorConfig {
  * 没有默认值就等于"装完还得去编辑 YAML"。而缺地址时管理面连挂都挂不上（它挂在
  * 最后一步），用户连"在界面里选一条"的机会都没有。
  * 取舍见 `.agents/notes/implemented/2026-11-03-builtin-relay-is-the-default.md`。
+ *
+ * 2026-11-05（fork）：域名从 `dsh.0t0.me` 换成自用的 `dsh.songzuo.online` ——
+ * 官方 0.1.21 产物里就是这个值（发布时走的是未进 main 的分支），而 main 的源码
+ * 还停在旧域名；不换的话从 main 重建的连接器默认拨向已停用的旧中转、**根本不会拨号**。
  */
-export const BUILTIN_RELAY_URL = 'wss://dsh.0t0.me/ws/connector'
+export const BUILTIN_RELAY_URL = 'wss://dsh.songzuo.online/ws/connector'
 
 /**
  * 生效的中转地址：**空着就是内置中转**。
