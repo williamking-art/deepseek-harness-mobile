@@ -132,6 +132,28 @@ export function createRelayLink(options: RelayLinkOptions): RelayLink {
     }, 2 * 60_000)
     watchdog.unref()
   }
+  /** 安排一次退避重连（幂等：已有定时器就不重复排）。 */
+  const scheduleRetry = (): void => {
+    if (stopped || retry !== null) return
+    retry = setTimeout(() => { retry = null; connect() }, backoff.next())
+  }
+  /**
+   * 控制连接掉线的统一收口。
+   *
+   * 两个入口：ws 的 `close`，以及**非 101 升级**（`unexpected-response`，其中最常见的是
+   * 中转重启窗口里的 502）。后者也必须走这里 —— 某些 Node/ws 组合下
+   * `request.destroy()` 之后 `close` 不会来，只按 `close` 排重连会让连接器停在
+   * 「重连中」直到人工重载插件（2026-11-05 实测：另一台电脑重启中转后，本机
+   * 502 后 7 分钟没有一次重拨）。5xx 是可自愈的，必须重试。
+   */
+  const dropControl = (socket: WebSocket): void => {
+    if (control !== socket) return
+    control = null
+    if (watchdog !== null) clearTimeout(watchdog)
+    watchdog = null
+    allDataClosed()
+    scheduleRetry()
+  }
   const openData = (channelId: string, binding: DeviceBinding): void => {
     if (data.has(channelId)) return
     if (!options.allows(binding)) {
@@ -201,18 +223,14 @@ export function createRelayLink(options: RelayLinkOptions): RelayLink {
     // 非 101 的应答：`ws` 只在**没有**监听这条事件时才发 `error`（那句 message 不含状态码）。
     // 接管它必须自己 `destroy()`，否则请求半挂、`close` 不来，退避重连也就不会发生。
     socket.on('unexpected-response', (request, response) => {
-      options.onFailure?.(describeUpgradeFailure(response.statusCode ?? 0))
+      const status = response.statusCode ?? 0
+      options.onFailure?.(describeUpgradeFailure(status))
+      if (status >= 500) options.log.warn(`中转升级返回 HTTP ${status}（多为中转重启窗口），进入退避重连`)
       request.destroy()
+      // 不依赖随后的 `close`：见 `dropControl` 的注释。
+      dropControl(socket)
     })
-    socket.on('close', () => {
-      if (control !== socket) return
-      control = null
-      if (watchdog !== null) clearTimeout(watchdog)
-      watchdog = null
-      allDataClosed()
-      if (stopped) return
-      retry = setTimeout(() => { retry = null; connect() }, backoff.next())
-    })
+    socket.on('close', () => dropControl(socket))
   }
   return {
     start() { stopped = false; connect() },
