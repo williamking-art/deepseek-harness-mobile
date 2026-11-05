@@ -418,6 +418,22 @@ function buildSteps(assembly: Assembly): LifecycleStep[] {
       const record = devicesTable?.get(devId)
       return record === undefined || record.revokedAt !== undefined ? undefined : record.pairedAt
     },
+    /**
+     * 设备活动落盘（面板「最后活跃」列，重启后仍然有效）。
+     *
+     * **节流 60 秒**：上线 / 前后台 / 订阅变化 / 答话都是高频信号，而设备表是 DSH 的
+     * JSON 存储 —— 每次都写代价太大（见 `store/index.ts` 的 `lastActiveAt` 注释）。
+     */
+    onSeen: (devId, at) => {
+      const table = devicesTable
+      if (table === null) return
+      const record = table.get(devId)
+      if (record === undefined || record.revokedAt !== undefined) return
+      if (at - (record.lastActiveAt ?? 0) < 60_000) return
+      void table.put(devId, { ...record, lastActiveAt: at }).catch(() => {
+        // 旁路写入：失败只影响「最后活跃」显示，不影响任何连接/投递。
+      })
+    },
   })
 
   /**
@@ -1713,6 +1729,7 @@ function buildSteps(assembly: Assembly): LifecycleStep[] {
                     /** 这一台**正占着服务位**（独占 1:1 只可能有一台）。 */
                     serving: id === servingId,
                     foreground: present?.foreground ?? false,
+                    ...(record.lastActiveAt === undefined ? {} : { lastActiveAt: record.lastActiveAt }),
                     ...(lastInteractedAt === undefined
                       ? {}
                       : { lastInteractedAt: Math.max(0, ...Object.values(lastInteractedAt)) }),

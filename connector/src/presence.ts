@@ -63,6 +63,17 @@ export interface PresenceDevices {
   pairedAtOf(devId: string): number | undefined
 }
 
+/** `createDevicePresence` 的选项：读取面 + 活动上报。 */
+export interface DevicePresenceOptions extends PresenceDevices {
+  /**
+   * 设备活动上报（上线 / 声明前后台 / 改订阅 / 答话）。
+   *
+   * 装配层用它把 `lastActiveAt` 落进设备表（重启后仍能显示「最后活跃」）。
+   * 本模块**不做节流与落盘**：预算与写策略属于存储那一侧（见 `index.ts` 的 60 秒节流）。
+   */
+  onSeen?: (devId: string, at: number) => void
+}
+
 export interface DevicePresence extends PresenceDevices {
   /**
    * 设备完成鉴权、连接进入服务态。
@@ -106,7 +117,7 @@ export interface DevicePresence extends PresenceDevices {
  * @param options.pairedAtOf - 配对行读取。**必填**：少了它，"已吊销的设备仍出现在列表里"
  *   这条就只能靠调用方各自记得判，而那是本模块存在的理由的反面。
  */
-export function createDevicePresence(options: PresenceDevices): DevicePresence {
+export function createDevicePresence(options: DevicePresenceOptions): DevicePresence {
   const live = new Map<string, LiveDeviceRecord>()
 
   /** 取记录，**没有就建一条在线的**。只给 `online()` 用。 */
@@ -158,6 +169,7 @@ export function createDevicePresence(options: PresenceDevices): DevicePresence {
       // **新连接接管记录**：同一台设备换网重连时，旧连接之后迟到的 offline
       // 会因为这个令牌不同而**什么都不做**（见 `offline`）。
       if (holder !== undefined) record.holder = holder
+      options.onSeen?.(devId, Date.now())
     },
 
     offline(devId, holder) {
@@ -179,18 +191,21 @@ export function createDevicePresence(options: PresenceDevices): DevicePresence {
       const record = updateOf(devId)
       if (record === undefined) return
       record.foreground = state === 'foreground'
+      options.onSeen?.(devId, Date.now())
     },
 
     subscriptions(devId, sids) {
       const record = updateOf(devId)
       if (record === undefined) return
       record.subscribed = [...sids]
+      options.onSeen?.(devId, Date.now())
     },
 
     interacted(devId, sid, at) {
       const record = updateOf(devId)
       if (record === undefined) return
       record.lastInteractedAt = { ...record.lastInteractedAt, [sid]: at }
+      options.onSeen?.(devId, at)
     },
 
     devices: snapshot,

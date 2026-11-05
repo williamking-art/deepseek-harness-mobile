@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-connector",
-  "version": "0.1.24",
+  "version": "0.1.26",
   "type": "module",
   "description": "DSH 插件:手机端远程通道的电脑侧桥接",
   "keywords": [
@@ -62,9 +62,8 @@
     "test": "tsx --test tests/*.test.ts"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.5",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.5",
-    "@deepseek-ai/schemastery": "3.18.5"
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/schemastery": ">=3.18.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "0.2.1-rc.5",
@@ -91,8 +90,7 @@
     "typescript": "5.9.3"
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.1-rc.5 <0.2.2"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "dependencies": {
     "qrcode": "^1.5.4",

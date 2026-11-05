@@ -141,6 +141,8 @@ export interface DeviceRow {
   pairedAt: number
   /** 是否已吊销（电脑侧删公钥）。 */
   revoked: boolean
+  /** 上次活动时刻（毫秒，随设备表落盘）；从未活动过就没有这个字段。 */
+  lastActiveAt?: number
 }
 
 /**
@@ -692,6 +694,7 @@ export function createHandlers(deps: HandlerDeps): Partial<Record<MethodName, Me
         name: row.name,
         pairedAt: row.pairedAt,
         revoked: row.revoked,
+        ...(row.lastActiveAt === undefined ? {} : { lastActiveAt: row.lastActiveAt }),
       })),
     }),
 

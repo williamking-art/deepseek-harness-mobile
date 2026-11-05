@@ -113,6 +113,8 @@ export interface AdminDeviceRow {
   serving: boolean
   /** 它的 App 在前台吗（决定审批仲裁选它还是退给桌面）。 */
   foreground: boolean
+  /** 上次活动时刻（毫秒，随设备表落盘：上线 / 前后台 / 订阅变化 / 答话，节流 60s）。 */
+  lastActiveAt?: number
   /** 最后交互时刻（毫秒）；从未交互过就没有这个字段。 */
   lastInteractedAt?: number
 }
