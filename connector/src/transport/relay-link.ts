@@ -75,14 +75,21 @@ function asDialSocket(ws: WebSocket): DialSocket {
  * 所以状态码从 `unexpected-response` 拿，翻译放在这里（纯函数，可单测）。
  */
 export function describeUpgradeFailure(status: number): string {
-  if (status === 401) return '中转不认这张令牌（HTTP 401）：去控制台「添加电脑」重签一张，贴到「连接」卡'
+  if (status === 401) {
+    // 最常见的 401 不是"令牌没签"，而是**多台电脑共用同一个连接器 id**：
+    // 中转按 id 存摘要，另一台电脑重签同 id = 覆盖，本机手里的令牌立刻作废。
+    return '中转不认这张令牌（HTTP 401）：常见原因是**另一台电脑重签了同名连接器 id 的令牌**'
+      + '（同 id 重签会覆盖旧令牌）。每台电脑应各用一个唯一 id；'
+      + '确认办法与改法见「连接」卡的 id / 我们的多机备份说明，改完重启 DSH'
+  }
   if (status === 403) {
     // 中转对这一档有四种原因（`relay/src/server.ts` 的控制面准入）：账号被停用、
     // 没带 `?id=`、自报的电脑 id 与令牌绑定不符、以及通道抢占。文案必须把它们
     // 都覆盖 —— 2026-11-03 那次真因是"账号"这一支，旧文案只提 id 不一致，
     // 把排查带偏了一整轮。
     return '中转拒绝了这台电脑（HTTP 403）：账号可能被停用，或令牌与自报的电脑 id 对不上'
-      + ' —— 去控制台看这个账号与这台电脑的状态'
+      + '（两台电脑共用一个 id 时也会这样）—— 去控制台看这个账号与这台电脑的状态，'
+      + '并确认每台电脑用的是**各自的**连接器 id'
   }
   if (status === 404) return '中转没有这个地址（HTTP 404）：地址要以 /ws/connector 结尾'
   return `中转拒绝升级（HTTP ${status}）`

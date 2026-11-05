@@ -546,7 +546,18 @@ function buildSteps(assembly: Assembly): LifecycleStep[] {
 
         // 本机标识：`pcId` 进 transcript，必须**稳定** —— 换一次，所有在途握手都会验签失败。
         // 空串是「尚未配置」的哨兵（见 store/index.ts），这里用与写入时同一个默认值。
-        connectorId = migrated.connectorId === '' ? DEFAULT_CONNECTOR_ID : migrated.connectorId
+        //
+        // **一机一 id**：两台电脑都用默认 `local` 时，任何一方重签令牌都会把另一方踢下线
+        // （中转按 id 存摘要，同 id 重签 = 覆盖）。`DSH_MOBILE_CONNECTOR_ID` 允许在
+        // **不手改存储**的前提下给本机换一个唯一 id（首次写入存储，之后仍以存储为准）。
+        const envConnectorId = process.env.DSH_MOBILE_CONNECTOR_ID?.trim() ?? ''
+        connectorId = envConnectorId !== ''
+          ? envConnectorId
+          : (migrated.connectorId === '' ? DEFAULT_CONNECTOR_ID : migrated.connectorId)
+        if (envConnectorId !== '' && core.global.get().connectorId !== envConnectorId) {
+          await core.global.set({ ...core.global.get(), connectorId: envConnectorId })
+          logger.info(`本机连接器 id 已按 DSH_MOBILE_CONNECTOR_ID 设为 ${envConnectorId}`)
+        }
 
         // 别名：先对账两个方向再用 —— 崩在两次 put 之间的残留在这一步被清掉，
         // 否则残缺的 by_sid 会让入站 sid 校验失败，或让 ensure 重复分配别名。
